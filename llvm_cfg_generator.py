@@ -78,7 +78,7 @@ class ContextFreeGrammar:
                 self.non_terminals.add(symbol)
     
     def is_terminal(self, symbol: str) -> bool:
-        """Determine if a symbol is a terminal (simplified heuristic)"""
+        """Determine if a symbol is a terminal (enhanced pattern matching)"""
         # Terminals are typically instruction names, constants, or specific tokens
         terminal_patterns = [
             r'^[A-Z][A-Z_]*$',  # All caps tokens like ADD, LOAD, STORE
@@ -88,7 +88,15 @@ class ContextFreeGrammar:
             r'^\d+$',           # Constants
             r'^".*"$',          # String literals
             r'^EPSILON$',       # Empty string terminal
-            r'^IF$|^THEN$|^ELSE$|^WHILE$|^DO$|^ASSIGN$|^COMPARE$|^VARIABLE$|^CONSTANT$|^EXPRESSION$'  # Control flow keywords
+            r'^IF$|^THEN$|^ELSE$|^WHILE$|^DO$|^ASSIGN$|^COMPARE$|^VARIABLE$|^CONSTANT$|^EXPRESSION$',  # Control flow keywords
+            r'^(ENTRY|EXIT|CONTINUE|BREAK|JUMP|FALLTHROUGH)$',  # Enhanced control flow
+            r'^(ALLOCA|LOAD|STORE|GEP|BITCAST|INTTOPTR|PTRTOINT)$',  # Memory operations
+            r'^(PHI|SELECT|EXTRACTVALUE|INSERTVALUE)$',  # Data flow operations
+            r'^(INVOKE|LANDINGPAD|RESUME|UNREACHABLE)$',  # Exception handling
+            r'^(FENCE|ATOMICRMW|CMPXCHG)$',  # Atomic operations
+            r'^LABEL_\d+$',     # Basic block labels
+            r'^ARG_\d+$',       # Function arguments
+            r'^(NULL|VOID|TRUE|FALSE)$'  # Constants
         ]
         
         for pattern in terminal_patterns:
@@ -107,82 +115,106 @@ class ContextFreeGrammar:
         return '\n'.join(result)
 
 class LLVMIRParser:
-    """Parser for LLVM-IR to extract control flow information"""
+    """Enhanced parser for LLVM-IR to extract control flow information"""
     
     def __init__(self):
-        self.function_pattern = re.compile(r'define\s+.*?@(\w+)\s*\(.*?\)\s*\{')
-        self.block_pattern = re.compile(r'^(\w+):')
-        self.branch_pattern = re.compile(r'br\s+i1\s+%\w+,\s+label\s+%(\w+),\s+label\s+%(\w+)')
+        # Enhanced patterns for modern LLVM IR
+        self.function_pattern = re.compile(r'define\s+(?:dso_local\s+|internal\s+)?\w+\s+@(\w+)\s*\([^)]*\)\s*(?:#\d+\s*)?\{', re.IGNORECASE)
+        self.block_pattern = re.compile(r'^(\w+):\s*(?:;.*)?$')
+        self.numbered_block_pattern = re.compile(r'^(\d+):\s*(?:;.*)?$')
+        self.branch_pattern = re.compile(r'br\s+i1\s+[^,]+,\s+label\s+%(\w+),\s+label\s+%(\w+)')
         self.unconditional_branch_pattern = re.compile(r'br\s+label\s+%(\w+)')
         self.return_pattern = re.compile(r'ret\s+')
         self.call_pattern = re.compile(r'call\s+.*?@(\w+)')
-        self.instruction_pattern = re.compile(r'^\s*(%\w+\s*=\s*)?(\w+)\s+(.*)')
+        self.instruction_pattern = re.compile(r'^\s*(?:%\w+\s*=\s*)?(\w+)\s+(.*)')
+        self.switch_pattern = re.compile(r'switch\s+.*?\[([^\]]+)\]')
+        self.indirectbr_pattern = re.compile(r'indirectbr\s+.*?\[([^\]]+)\]')
     
     def parse_llvm_ir(self, llvm_code: str) -> Dict[str, ControlFlowGraph]:
-        """Parse LLVM-IR code and extract CFGs for each function"""
+        """Parse LLVM-IR code and extract CFGs for each function with enhanced error handling"""
         functions = {}
         
-        # Split into functions
-        function_blocks = self._split_into_functions(llvm_code)
-        
-        for func_name, func_code in function_blocks.items():
-            cfg = self._build_cfg_from_function(func_name, func_code)
-            functions[func_name] = cfg
+        try:
+            # Split into functions with better handling
+            function_blocks = self._split_into_functions_enhanced(llvm_code)
+            
+            for func_name, func_code in function_blocks.items():
+                try:
+                    cfg = self._build_cfg_from_function(func_name, func_code)
+                    if cfg.blocks:  # Only add non-empty CFGs
+                        functions[func_name] = cfg
+                except Exception as e:
+                    print(f"Warning: Failed to parse function {func_name}: {e}")
+                    continue
+        except Exception as e:
+            print(f"Error parsing LLVM IR: {e}")
         
         return functions
     
-    def _split_into_functions(self, llvm_code: str) -> Dict[str, str]:
-        """Split LLVM-IR into individual functions"""
+    def _split_into_functions_enhanced(self, llvm_code: str) -> Dict[str, str]:
+        """Enhanced function splitting with better pattern matching"""
         functions = {}
         lines = llvm_code.split('\n')
         current_function = None
         current_code = []
         brace_count = 0
+        in_function = False
         
-        for line in lines:
+        for i, line in enumerate(lines):
+            original_line = line
             line = line.strip()
-            if not line or line.startswith(';'):
+            
+            # Skip empty lines and global declarations outside functions
+            if not line or (line.startswith(';') and not in_function):
                 continue
             
-            # Check for function definition
+            # Check for function definition with enhanced pattern
             func_match = self.function_pattern.search(line)
             if func_match:
-                if current_function:
+                # Save previous function if exists
+                if current_function and current_code:
                     functions[current_function] = '\n'.join(current_code)
+                
                 current_function = func_match.group(1)
-                current_code = [line]
+                current_code = [original_line]
                 brace_count = line.count('{') - line.count('}')
+                in_function = True
                 continue
             
-            if current_function:
-                current_code.append(line)
+            if in_function and current_function:
+                current_code.append(original_line)
                 brace_count += line.count('{') - line.count('}')
                 
+                # Function ends when braces are balanced
                 if brace_count == 0:
                     functions[current_function] = '\n'.join(current_code)
                     current_function = None
                     current_code = []
+                    in_function = False
         
-        if current_function:
+        # Handle last function if file doesn't end with closing brace
+        if current_function and current_code:
             functions[current_function] = '\n'.join(current_code)
         
         return functions
     
     def _build_cfg_from_function(self, func_name: str, func_code: str) -> ControlFlowGraph:
-        """Build CFG from a single function's LLVM-IR code"""
+        """Build CFG from a single function's LLVM-IR code with enhanced block detection"""
         cfg = ControlFlowGraph()
         lines = func_code.split('\n')
         
         current_block = None
         entry_found = False
         
-        for line in lines:
+        for line_num, line in enumerate(lines):
+            original_line = line
             line = line.strip()
+            
             if not line or line.startswith(';'):
                 continue
             
-            # Check for basic block label
-            block_match = self.block_pattern.match(line)
+            # Check for basic block label (both named and numbered)
+            block_match = self.block_pattern.match(line) or self.numbered_block_pattern.match(line)
             if block_match:
                 block_name = block_match.group(1)
                 current_block = cfg.add_block(block_name)
@@ -191,74 +223,120 @@ class LLVMIRParser:
                     entry_found = True
                 continue
             
-            # If no explicit block label found, create entry block
-            if current_block is None and not entry_found:
+            # Handle function entry (first instruction after define)
+            if not entry_found and current_block is None:
+                # First instruction creates entry block
                 current_block = cfg.add_block('entry')
                 cfg.entry_block = 'entry'
                 entry_found = True
             
             if current_block:
-                current_block.instructions.append(line)
+                current_block.instructions.append(original_line.strip())
                 
-                # Check for branch instructions
-                branch_match = self.branch_pattern.search(line)
-                if branch_match:
-                    true_target = branch_match.group(1)
-                    false_target = branch_match.group(2)
-                    cfg.add_edge(current_block.name, true_target, "true")
-                    cfg.add_edge(current_block.name, false_target, "false")
-                    continue
-                
-                unconditional_match = self.unconditional_branch_pattern.search(line)
-                if unconditional_match:
-                    target = unconditional_match.group(1)
-                    cfg.add_edge(current_block.name, target)
-                    continue
-                
-                # Check for return instruction
-                if self.return_pattern.search(line):
-                    cfg.exit_blocks.add(current_block.name)
+                # Enhanced terminator instruction detection
+                self._process_terminator_instruction(cfg, current_block, line)
         
         return cfg
+    
+    def _process_terminator_instruction(self, cfg: ControlFlowGraph, current_block: BasicBlock, line: str):
+        """Process terminator instructions with enhanced pattern matching"""
+        # Conditional branch
+        branch_match = self.branch_pattern.search(line)
+        if branch_match:
+            true_target = branch_match.group(1)
+            false_target = branch_match.group(2)
+            cfg.add_edge(current_block.name, true_target, "true")
+            cfg.add_edge(current_block.name, false_target, "false")
+            return
+        
+        # Unconditional branch
+        unconditional_match = self.unconditional_branch_pattern.search(line)
+        if unconditional_match:
+            target = unconditional_match.group(1)
+            cfg.add_edge(current_block.name, target)
+            return
+        
+        # Switch statement
+        switch_match = self.switch_pattern.search(line)
+        if switch_match:
+            # Parse switch targets
+            targets_str = switch_match.group(1)
+            targets = re.findall(r'label\s+%(\w+)', targets_str)
+            for target in targets:
+                cfg.add_edge(current_block.name, target, "switch")
+            return
+        
+        # Indirect branch
+        indirectbr_match = self.indirectbr_pattern.search(line)
+        if indirectbr_match:
+            targets_str = indirectbr_match.group(1)
+            targets = re.findall(r'label\s+%(\w+)', targets_str)
+            for target in targets:
+                cfg.add_edge(current_block.name, target, "indirect")
+            return
+        
+        # Return instruction
+        if self.return_pattern.search(line):
+            cfg.exit_blocks.add(current_block.name)
+            return
+        
+        # Unreachable instruction
+        if 'unreachable' in line:
+            cfg.exit_blocks.add(current_block.name)
+            return
 
 class CFGToGrammarConverter:
-    """Converts Control Flow Graph to Context-Free Grammar optimized for fuzzing"""
+    """Enhanced converter from CFG to Context-Free Grammar optimized for fuzzing"""
     
     def __init__(self):
+        # Enhanced instruction abstraction for complex LLVM IR
         self.instruction_abstraction = {
-            'load': 'LOAD',
-            'store': 'STORE',
-            'add': 'ADD',
-            'sub': 'SUB',
-            'mul': 'MUL',
-            'div': 'DIV',
-            'sdiv': 'SDIV',
-            'udiv': 'UDIV',
-            'srem': 'SREM',
-            'urem': 'UREM',
-            'and': 'AND',
-            'or': 'OR',
-            'xor': 'XOR',
-            'shl': 'SHL',
-            'lshr': 'LSHR',
-            'ashr': 'ASHR',
-            'call': 'CALL',
-            'ret': 'RETURN',
-            'br': 'BRANCH',
-            'icmp': 'ICMP',
-            'fcmp': 'FCMP',
-            'alloca': 'ALLOCA',
-            'phi': 'PHI',
-            'select': 'SELECT',
-            'getelementptr': 'GEP',
-            'bitcast': 'BITCAST',
-            'trunc': 'TRUNC',
-            'zext': 'ZEXT',
-            'sext': 'SEXT',
-            'fadd': 'FADD',
-            'fsub': 'FSUB',
-            'fmul': 'FMUL',
-            'fdiv': 'FDIV'
+            # Arithmetic operations
+            'add': 'ADD', 'fadd': 'FADD', 'sub': 'SUB', 'fsub': 'FSUB',
+            'mul': 'MUL', 'fmul': 'FMUL', 'udiv': 'UDIV', 'sdiv': 'SDIV',
+            'fdiv': 'FDIV', 'urem': 'UREM', 'srem': 'SREM', 'frem': 'FREM',
+            
+            # Bitwise operations
+            'shl': 'SHL', 'lshr': 'LSHR', 'ashr': 'ASHR', 'and': 'AND',
+            'or': 'OR', 'xor': 'XOR',
+            
+            # Memory operations
+            'alloca': 'ALLOCA', 'load': 'LOAD', 'store': 'STORE',
+            'getelementptr': 'GEP', 'fence': 'FENCE',
+            
+            # Conversion operations
+            'trunc': 'TRUNC', 'zext': 'ZEXT', 'sext': 'SEXT',
+            'fptrunc': 'FPTRUNC', 'fpext': 'FPEXT', 'fptoui': 'FPTOUI',
+            'fptosi': 'FPTOSI', 'uitofp': 'UITOFP', 'sitofp': 'SITOFP',
+            'ptrtoint': 'PTRTOINT', 'inttoptr': 'INTTOPTR', 'bitcast': 'BITCAST',
+            'addrspacecast': 'ADDRSPACECAST',
+            
+            # Other operations
+            'icmp': 'ICMP', 'fcmp': 'FCMP', 'phi': 'PHI', 'select': 'SELECT',
+            'call': 'CALL', 'va_arg': 'VA_ARG', 'landingpad': 'LANDINGPAD',
+            'cleanuppad': 'CLEANUPPAD', 'catchpad': 'CATCHPAD',
+            
+            # Terminator instructions
+            'ret': 'RETURN', 'br': 'BRANCH', 'switch': 'SWITCH',
+            'indirectbr': 'INDIRECT_BR', 'invoke': 'INVOKE', 'resume': 'RESUME',
+            'catchswitch': 'CATCHSWITCH', 'catchret': 'CATCHRET',
+            'cleanupret': 'CLEANUPRET', 'unreachable': 'UNREACHABLE',
+            
+            # Aggregate operations
+            'extractvalue': 'EXTRACTVALUE', 'insertvalue': 'INSERTVALUE',
+            'extractelement': 'EXTRACTELEMENT', 'insertelement': 'INSERTELEMENT',
+            'shufflevector': 'SHUFFLEVECTOR',
+            
+            # Atomic operations
+            'atomicrmw': 'ATOMICRMW', 'cmpxchg': 'CMPXCHG'
+        }
+        
+        # Enhanced patterns for complex control flow
+        self.control_flow_patterns = {
+            'loop': ['for', 'while', 'do_while'],
+            'conditional': ['if_then', 'if_then_else', 'ternary'],
+            'switch': ['multi_branch', 'jump_table'],
+            'exception': ['try_catch', 'cleanup', 'landing_pad']
         }
     
     def convert_cfg_to_grammar(self, cfg: ControlFlowGraph, func_name: str) -> ContextFreeGrammar:
