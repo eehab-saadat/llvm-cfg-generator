@@ -491,22 +491,247 @@ Successful Files:
     
     return report
 
+def dump_grammars_to_file(grammars: Dict[str, ContextFreeGrammar], output_path: str, 
+                         analytics: Dict[str, GrammarAnalytics] = None) -> bool:
+    """
+    Dump all context-free grammars to a comprehensive text file.
+    
+    Args:
+        grammars: Dictionary of function names to their context-free grammars
+        output_path: Path where to save the grammar dump
+        analytics: Optional analytics data to include in the dump
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write("="*80 + "\n")
+            f.write("COMPREHENSIVE CONTEXT-FREE GRAMMAR DUMP\n")
+            f.write("="*80 + "\n")
+            f.write(f"Generated from LLVM-IR analysis\n")
+            f.write(f"Total Functions: {len(grammars)}\n")
+            f.write(f"Timestamp: {__import__('datetime').datetime.now()}\n")
+            f.write("="*80 + "\n\n")
+            
+            # Summary statistics
+            total_rules = sum(len(g.rules) for g in grammars.values())
+            total_non_terminals = sum(len(g.non_terminals) for g in grammars.values())
+            total_terminals = sum(len(g.terminals) for g in grammars.values())
+            
+            f.write("SUMMARY STATISTICS\n")
+            f.write("-"*50 + "\n")
+            f.write(f"Total Production Rules: {total_rules}\n")
+            f.write(f"Total Non-terminals: {total_non_terminals}\n")
+            f.write(f"Total Terminals: {total_terminals}\n")
+            f.write(f"Average Rules per Function: {total_rules/len(grammars):.2f}\n\n")
+            
+            # If analytics available, show fuzzing readiness overview
+            if analytics:
+                avg_fuzzing_score = sum(a.fuzzing_readiness_score for a in analytics.values()) / len(analytics)
+                total_choice_points = sum(a.choice_points_count for a in analytics.values())
+                total_loops = sum(a.loop_patterns_count for a in analytics.values())
+                
+                f.write("FUZZING READINESS OVERVIEW\n")
+                f.write("-"*50 + "\n")
+                f.write(f"Average Fuzzing Score: {avg_fuzzing_score:.2f}/10.0\n")
+                f.write(f"Total Choice Points: {total_choice_points}\n")
+                f.write(f"Total Loop Patterns: {total_loops}\n")
+                f.write(f"Functions with High Fuzzing Score (>7.0): {sum(1 for a in analytics.values() if a.fuzzing_readiness_score > 7.0)}\n\n")
+            
+            # Detailed grammar dump for each function
+            for i, (func_name, grammar) in enumerate(grammars.items(), 1):
+                f.write("="*80 + "\n")
+                f.write(f"FUNCTION {i}: {func_name}\n")
+                f.write("="*80 + "\n\n")
+                
+                # Basic grammar information
+                f.write("GRAMMAR OVERVIEW\n")
+                f.write("-"*40 + "\n")
+                f.write(f"Start Symbol: {grammar.start_symbol}\n")
+                f.write(f"Production Rules: {len(grammar.rules)}\n")
+                f.write(f"Non-terminals: {len(grammar.non_terminals)}\n")
+                f.write(f"Terminals: {len(grammar.terminals)}\n\n")
+                
+                # Analytics if available
+                if analytics and func_name in analytics:
+                    anal = analytics[func_name]
+                    f.write("FUZZING ANALYTICS\n")
+                    f.write("-"*40 + "\n")
+                    f.write(f"Fuzzing Readiness Score: {anal.fuzzing_readiness_score:.2f}/10.0\n")
+                    f.write(f"Basic Blocks: {anal.basic_blocks_count}\n")
+                    f.write(f"Choice Points: {anal.choice_points_count}\n")
+                    f.write(f"Loop Patterns: {anal.loop_patterns_count}\n")
+                    f.write(f"Path Alternatives: {anal.path_alternatives_count}\n")
+                    f.write(f"Branching Factor: {anal.branching_factor:.2f}\n")
+                    f.write(f"Estimated Depth: {anal.depth_estimation}\n")
+                    f.write(f"Instruction Types: {', '.join(anal.instruction_types_covered[:10])}\n")
+                    if len(anal.instruction_types_covered) > 10:
+                        f.write(f"... and {len(anal.instruction_types_covered) - 10} more\n")
+                    f.write(f"Control Flow Patterns: {', '.join(anal.control_flow_patterns)}\n\n")
+                
+                # Non-terminals
+                f.write("NON-TERMINALS\n")
+                f.write("-"*40 + "\n")
+                sorted_nts = sorted(grammar.non_terminals)
+                for j in range(0, len(sorted_nts), 8):
+                    f.write("  " + ", ".join(sorted_nts[j:j+8]) + "\n")
+                f.write("\n")
+                
+                # Terminals
+                f.write("TERMINALS\n")
+                f.write("-"*40 + "\n")
+                sorted_ts = sorted(grammar.terminals)
+                for j in range(0, len(sorted_ts), 10):
+                    f.write("  " + ", ".join(sorted_ts[j:j+10]) + "\n")
+                f.write("\n")
+                
+                # Production rules organized by categories
+                f.write("PRODUCTION RULES\n")
+                f.write("-"*40 + "\n")
+                
+                # Group rules by left-hand side
+                rules_by_lhs = {}
+                for rule in grammar.rules:
+                    if rule.lhs not in rules_by_lhs:
+                        rules_by_lhs[rule.lhs] = []
+                    rules_by_lhs[rule.lhs].append(rule.rhs)
+                
+                # Show rules in organized categories
+                categories = {
+                    'Function Entry': ['FUNC_', 'ENTRY_'],
+                    'Basic Blocks': ['BLOCK_', 'BB_'],
+                    'Control Flow': ['CHOICE_POINT', 'BRANCH_', 'CONDITIONAL_'],
+                    'Loops': ['LOOP_', 'WHILE_', 'FOR_', 'REPEAT_'],
+                    'Instructions': ['INSTRUCTION_SEQ', 'INST_', 'OP_'],
+                    'Data Flow': ['PHI_', 'SELECT_', 'ASSIGN_'],
+                    'Memory Operations': ['LOAD_', 'STORE_', 'ALLOCA_'],
+                    'Paths & Alternatives': ['PATH_', 'ALT_', 'OPT_', 'CHOICE_'],
+                    'Other': []
+                }
+                
+                for category, patterns in categories.items():
+                    category_rules = []
+                    for lhs in sorted(rules_by_lhs.keys()):
+                        if patterns and any(pattern in lhs for pattern in patterns):
+                            category_rules.append(lhs)
+                        elif not patterns:  # 'Other' category
+                            if not any(any(p in lhs for p in pats) for pats in list(categories.values())[:-1]):
+                                category_rules.append(lhs)
+                    
+                    if category_rules:
+                        f.write(f"\n{category} Rules:\n")
+                        for lhs in category_rules[:15]:  # Limit to first 15 rules per category
+                            alternatives = rules_by_lhs[lhs]
+                            f.write(f"{lhs} ->")
+                            for k, rhs in enumerate(alternatives[:3]):  # Show up to 3 alternatives
+                                connector = " |" if k > 0 else ""
+                                rhs_str = ' '.join(rhs) if rhs else 'EPSILON'
+                                if len(rhs_str) > 80:
+                                    rhs_str = rhs_str[:77] + "..."
+                                f.write(f"{connector} {rhs_str}\n")
+                                if k == 0:
+                                    f.write("     ")
+                            if len(alternatives) > 3:
+                                f.write(f"      | ... and {len(alternatives) - 3} more alternatives\n")
+                        
+                        if len(category_rules) > 15:
+                            f.write(f"... and {len(category_rules) - 15} more {category.lower()} rules\n")
+                
+                f.write("\n" + "-"*80 + "\n\n")
+            
+            f.write("="*80 + "\n")
+            f.write("END OF GRAMMAR DUMP\n")
+            f.write("="*80 + "\n")
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error writing grammar dump to {output_path}: {e}")
+        return False
+
+def dump_grammars_from_file(llvm_file_path: str, output_path: str = None) -> bool:
+    """
+    Process an LLVM file and dump its grammars to a text file.
+    
+    Args:
+        llvm_file_path: Path to the LLVM-IR file
+        output_path: Path for the grammar dump (auto-generated if None)
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    # Auto-generate output path if not provided
+    if output_path is None:
+        base_name = os.path.splitext(os.path.basename(llvm_file_path))[0]
+        output_path = f"{base_name}_grammar_dump.txt"
+    
+    # Process the LLVM file
+    result = process_llvm_file(llvm_file_path)
+    
+    if not result.success:
+        print(f"❌ Failed to process {llvm_file_path}: {result.error_message}")
+        return False
+    
+    if not result.grammars:
+        print(f"❌ No grammars generated from {llvm_file_path}")
+        return False
+    
+    # Dump grammars to file
+    success = dump_grammars_to_file(result.grammars, output_path, result.analytics)
+    
+    if success:
+        print(f"✅ Grammar dump saved to: {output_path}")
+        print(f"📊 Processed {result.functions_processed} functions")
+        print(f"📝 Generated {result.total_grammar_rules} grammar rules")
+        print(f"🎯 Overall fuzzing score: {result.overall_fuzzing_score:.1f}/10.0")
+    else:
+        print(f"❌ Failed to save grammar dump to {output_path}")
+    
+    return success
+
 if __name__ == "__main__":
-    # Example usage
+    # Enhanced example usage with grammar dumping capability
     import sys
     
     if len(sys.argv) < 2:
-        print("Usage: python llvm_file_processor.py <llvm_file_path>")
+        print("Usage: python llvm_file_processor.py <llvm_file_path> [--dump-grammar] [--output-path <path>]")
+        print("  --dump-grammar: Save complete grammar to text file")
+        print("  --output-path: Specify custom output path for grammar dump")
         sys.exit(1)
     
     file_path = sys.argv[1]
+    dump_grammar = "--dump-grammar" in sys.argv
+    
+    # Check for custom output path
+    output_path = None
+    if "--output-path" in sys.argv:
+        try:
+            output_idx = sys.argv.index("--output-path")
+            if output_idx + 1 < len(sys.argv):
+                output_path = sys.argv[output_idx + 1]
+        except (ValueError, IndexError):
+            print("Error: --output-path requires a path argument")
+            sys.exit(1)
+    
     result = process_llvm_file(file_path)
+    
+    if not result.success:
+        print(f"❌ Failed to process {file_path}: {result.error_message}")
+        sys.exit(1)
     
     print(f"✅ Successfully processed: {result.file_path}")
     print(f"Functions: {result.functions_processed}")
     print(f"Total Rules: {result.total_grammar_rules}")
     print(f"Choice Points: {result.total_choice_points}")
     print(f"Fuzzing Score: {result.overall_fuzzing_score:.1f}/10")
+    
+    # Dump grammar to file if requested
+    if dump_grammar or output_path:
+        print(f"\n📝 Generating grammar dump...")
+        success = dump_grammars_from_file(file_path, output_path)
+        if not success:
+            print("❌ Failed to generate grammar dump")
     
     if result.success:
         print("\n" + "="*60)
