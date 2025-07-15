@@ -1,21 +1,14 @@
 # LLVM CFG Generator
 
-A sophisticated research tool for converting LLVM Intermediate Representation (IR) into Context-Free Grammars optimized for fuzzing applications. This project bridges the gap between static program analysis and dynamic testing by extracting structural control-flow information from compiled code and transforming it into grammar rules that can guide intelligent fuzzing strategies.
-
 ## 🎯 Project Overview
 
-The LLVM CFG Generator analyzes LLVM IR files to extract control-flow graphs (CFGs) and automatically generates context-free grammars that model the execution paths through functions. These grammars are specifically designed to be effective for fuzzing applications, providing:
-
-- **Comprehensive path coverage** through all control flow structures
-- **Choice points** for fuzzer exploration of different execution paths
-- **Loop patterns** for iterative testing scenarios
-- **Flexible rule alternatives** for input variation and edge case discovery
+The LLVM CFG Generator analyzes LLVM IR files to extract control-flow graphs (CFGs) and automatically infers context-free grammars that model the execution paths through functions. These grammars are specifically designed to be effective for fuzzing applications.
 
 ## 🏗️ Architecture & Core Modules
 
 ### Core Processing Pipeline (`src/`)
 
-The project consists of five main Python modules that work together in a sophisticated pipeline:
+The project consists of five main Python modules:
 
 #### 1. **`llvm_cfg_generator.py`** - Core Grammar Generation Engine
 The heart of the system that implements the complete LLVM IR → Context-Free Grammar pipeline:
@@ -84,29 +77,6 @@ Utility for converting Graphviz DOT files to BNF grammars:
 - **`generate_aliases()`**: Creates symbolic aliases for readability
 - **Directory tree processing**: Batch conversion of multiple DOT files
 
-## 🚀 Key Features
-
-### Advanced Control Flow Analysis
-- **Comprehensive Pattern Recognition**: Handles sequential, conditional, and iterative control structures
-- **Modern LLVM Support**: Compatible with LLVM 18+ IR format
-- **Exception Handling**: Processes invoke, landingpad, and cleanup constructs
-- **Memory Operations**: Analyzes alloca, load, store, and GEP instructions
-- **Atomic Operations**: Supports atomicrmw, cmpxchg, and fence instructions
-
-### Fuzzing-Optimized Grammar Generation
-- **Choice Point Identification**: Automatically detects decision points critical for path exploration
-- **Loop Pattern Encoding**: Generates rules that enable iterative testing scenarios
-- **Path Alternative Generation**: Creates multiple derivation paths for comprehensive coverage
-- **Instruction Abstraction**: Maps 200+ LLVM instructions to meaningful terminal symbols
-- **Complexity Management**: Implements depth limiting and recursion control
-
-### Comprehensive Analytics & Evaluation
-- **Fuzzing Readiness Scoring**: 0-10 scale assessment of grammar suitability for fuzzing
-- **Structural Metrics**: Detailed analysis of grammar complexity and coverage
-- **Quality Evaluation**: Precision/recall/F1 scoring against reference grammars
-- **Batch Processing**: Efficient processing of multiple LLVM IR files
-- **Export Capabilities**: Human-readable grammar dumps and detailed reports
-
 ## 📁 Project Structure
 
 ```
@@ -119,20 +89,11 @@ llvm-cfg-generator/
 │   ├── dot_to_bnf.py             # DOT to BNF conversion
 │   └── llvm-cfg-ig.ipynb         # Jupyter notebook for interactive analysis
 ├── parsers-llvm/                 # Sample LLVM IR files
-│   ├── json/                     # JSON parser examples (cJson, jsmn, parson)
-│   ├── html/                     # HTML parser examples
-│   └── ini/                      # INI parser examples
 ├── parsers-raw/                  # Original C source files
 │   ├── src/                      # Client applications
 │   ├── examples/                 # Input format examples
 │   └── sample inputs/            # Test data
 ├── output/                       # Generated grammar dumps
-│   ├── json/                     # JSON parser grammars
-│   └── html/                     # HTML parser grammars
-├── dot-file-exp/                 # DOT file experiments
-├── Makefile                      # Build automation
-├── Dockerfile                    # Container configuration
-└── commands_llvm.txt            # LLVM toolchain commands
 ```
 
 ## 🛠️ Installation & Setup
@@ -156,16 +117,7 @@ sudo apt update
 sudo apt install clang llvm-tools llvm-dev
 ```
 
-### Docker Installation
-```bash
-# Build the Docker container
-docker build -t llvm-cfg-generator .
-
-# Run the container
-docker run -it --rm -v $(pwd):/workspace llvm-cfg-generator
-```
-
-## 💡 Usage Examples
+## Usage Examples
 
 ### Basic Grammar Generation
 ```python
@@ -222,19 +174,6 @@ precision, recall, f1 = evaluate_llvm_grammars(
 print(f"Precision: {precision:.4f}")
 print(f"Recall: {recall:.4f}")
 print(f"F1-Score: {f1:.4f}")
-```
-
-### Batch Processing
-```python
-from src.llvm_file_processor import process_multiple_files, generate_batch_report
-
-# Process multiple files
-files = ['file1.ll', 'file2.ll', 'file3.ll']
-results = process_multiple_files(files)
-
-# Generate comprehensive report
-report = generate_batch_report(results)
-print(report)
 ```
 
 ### Grammar Export
@@ -335,30 +274,6 @@ LOOP_CHECK -> CHOICE_POINT
 CHOICE_POINT -> BLOCK_LOOP_BODY | BLOCK_LOOP_EXIT
 BLOCK_LOOP_BODY -> INSTRUCTION_SEQ BLOCK_LOOP_CHECK
 ```
-
-## 🔬 Research Applications
-
-This tool is designed for research in:
-- **Fuzzing and Security Testing**: Generate grammars for structure-aware fuzzing
-- **Program Analysis**: Understand control flow patterns in compiled code
-- **Compiler Testing**: Validate optimization passes and transformations
-- **Static Analysis**: Extract structural information for further analysis
-- **Grammar Inference**: Study automated grammar generation techniques
-
-## 🤝 Contributing
-
-Contributions are welcome! Please ensure your code follows the existing patterns:
-- Comprehensive docstrings for all functions and classes
-- Type hints for better code maintainability
-- Error handling and input validation
-- Unit tests for new functionality
-
-## 📚 References
-
-- **LLVM Language Reference**: https://llvm.org/docs/LangRef.html
-- **Context-Free Grammar Theory**: Standard formal language theory
-- **Fuzzing Research**: Structure-aware fuzzing techniques
-- **Control Flow Analysis**: Program analysis fundamentals
 
 ## 📄 License
 
