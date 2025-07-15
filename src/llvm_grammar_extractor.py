@@ -10,19 +10,11 @@ from typing import Dict, List, Optional
 from llvm_cfg_generator import llvm_ir_to_context_free_grammar, ContextFreeGrammar
 
 def extract_grammar_from_file(llvm_file_path: str) -> Dict[str, ContextFreeGrammar]:
-    """
-    Extract raw context-free grammars from an LLVM-IR file.
-    
-    Args:
-        llvm_file_path: Path to the LLVM-IR file
-        
-    Returns:
-        Dictionary mapping function names to their ContextFreeGrammar objects
-        
-    Raises:
-        FileNotFoundError: If the file doesn't exist
-        ValueError: If the file cannot be processed or contains no functions
-        IOError: If the file cannot be read
+    """High-level helper that loads *llvm_file_path* and converts it into
+    grammars using the core pipeline from :pymod:`llvm_cfg_generator`.
+
+    This is the *lowest* layer in the extractor module; every other utility
+    eventually calls it.
     """
     
     # Validate file exists
@@ -48,37 +40,18 @@ def extract_grammar_from_file(llvm_file_path: str) -> Dict[str, ContextFreeGramm
         raise ValueError(f"Error processing LLVM-IR: {e}")
 
 def extract_single_function_grammar(llvm_file_path: str, function_name: str) -> Optional[ContextFreeGrammar]:
-    """
-    Extract grammar for a specific function from an LLVM-IR file.
-    
-    Args:
-        llvm_file_path: Path to the LLVM-IR file
-        function_name: Name of the function to extract grammar for
-        
-    Returns:
-        ContextFreeGrammar object for the specified function, or None if not found
-        
-    Raises:
-        FileNotFoundError: If the file doesn't exist
-        ValueError: If the file cannot be processed
-        IOError: If the file cannot be read
+    """Thin convenience wrapper around :pyfunc:`extract_grammar_from_file`.
+
+    It simply returns ``grammars.get(function_name)`` so that callers do not
+    have to perform the dictionary look-up in two lines of code.
     """
     
     grammars = extract_grammar_from_file(llvm_file_path)
     return grammars.get(function_name)
 
 def extract_grammar_from_string(llvm_ir_code: str) -> Dict[str, ContextFreeGrammar]:
-    """
-    Extract raw context-free grammars from LLVM-IR code string.
-    
-    Args:
-        llvm_ir_code: LLVM-IR code as string
-        
-    Returns:
-        Dictionary mapping function names to their ContextFreeGrammar objects
-        
-    Raises:
-        ValueError: If the code cannot be processed or contains no functions
+    """Like :pyfunc:`extract_grammar_from_file` but works on an in-memory
+    string instead of reading from disk.
     """
     
     if not llvm_ir_code or not llvm_ir_code.strip():

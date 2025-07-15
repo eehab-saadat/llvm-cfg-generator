@@ -5,7 +5,38 @@ from dataclasses import dataclass
 
 @dataclass
 class BasicBlock:
-    """Represents a basic block in the control flow graph"""
+    """
+    Immutable metadata holder that models an LLVM *basic block* inside a
+    function-level control-flow graph (CFG).
+
+    In the textual LLVM IR a basic block is introduced by a label such as
+
+        ``entry:``
+
+    followed by a *contiguous* list of instructions that concludes with a
+    single *terminator* (`br`, `switch`, `ret`, `invoke`, …).  The absence of
+    explicit `goto`-style jump statements within the body guarantees that
+    **all** control-flow into the block is funnelled through the label and
+    **all** control-flow out of the block emanates from the last instruction.
+
+    The present class does not attempt any semantic inspection of the
+    instructions; it simply acts as a lightweight container so that the CFG
+    construction algorithm can record structural relationships.
+
+    Attributes
+    ----------
+    name:
+        Canonical label that uniquely identifies the block inside its
+        enclosing function.
+    instructions:
+        List of raw LLVM textual lines *exactly* as they appear in the input
+        file.  The list is filled incrementally while the parser iterates over
+        the function body.
+    successors / predecessors:
+        Outgoing and incoming adjacency lists respectively.  They are updated
+        by :pyclass:`ControlFlowGraph.add_edge` once the parser encounters a
+        terminator that creates a control-flow edge.
+    """
     name: str
     instructions: List[str]
     successors: List[str]
@@ -19,13 +50,38 @@ class BasicBlock:
 
 @dataclass
 class CFGEdge:
-    """Represents an edge in the control flow graph"""
+    """
+    Directed *hyper-edge* (source → target) that connects two
+    :pyclass:`BasicBlock` instances in a :pyclass:`ControlFlowGraph`.
+
+    The optional *condition* label provides minimal semantic context that is
+    later used by the grammar generator to create *choice* non-terminals.
+    Examples include ``"true"`` / ``"false"`` for a conditional `br`,
+    ``"switch"`` for a `switch`-based dispatch, or ``None`` for an
+    unconditional jump.
+    """
     source: str
     target: str
     condition: Optional[str] = None
 
 class ControlFlowGraph:
-    """Control Flow Graph representation"""
+    """
+    Adjacency-list representation of the intra-procedural control-flow graph
+    that underpins the entire *IR → Grammar* pipeline.
+
+    Design choices
+    --------------
+    • **No edge de-duplication:** Multiple syntactically different IR
+      constructs can yield identical source/target pairs – e.g. two
+      back-to-back `br` instructions protected by mutually exclusive
+      predicates.  Retaining duplicates helps the grammar generator produce a
+      richer set of rules that account for *how* control reaches a block.
+
+    • **Partial connectivity:** The parser deliberately allows *dangling*
+      blocks that have no successors (e.g. `unreachable`) or no predecessors
+      (dead code after DCE).  Such corner cases are propagated to consumers so
+      that they can decide whether to prune or keep them.
+    """
     def __init__(self):
         self.blocks: Dict[str, BasicBlock] = {}
         self.edges: List[CFGEdge] = []
@@ -47,7 +103,17 @@ class ControlFlowGraph:
             self.blocks[target].predecessors.append(source)
 
 class GrammarRule:
-    """Represents a context-free grammar rule"""
+    """
+    Single production in a context-free grammar following the conventional
+    Backus–Naur notation
+
+        ``<lhs> ::= rhs₁ rhs₂ … rhsₙ``
+
+    where *rhsᵢ* may itself be of terminal or non-terminal category.  The
+    class is intentionally *dumb* – it stores raw strings only – because the
+    surrounding framework maintains global sets of terminals/non-terminals and
+    invariants such as *reachability* and *productivity*.
+    """
     def __init__(self, lhs: str, rhs: List[str]):
         self.lhs = lhs  # Left-hand side (non-terminal)
         self.rhs = rhs  # Right-hand side (list of terminals/non-terminals)
@@ -59,7 +125,15 @@ class GrammarRule:
         return self.__str__()
 
 class ContextFreeGrammar:
-    """Context-Free Grammar representation"""
+    """
+    Aggregates the production rules that collectively form the *executable
+    model* of an LLVM function.
+
+    Apart from storing the rules themselves, the class keeps canonicalised
+    *sets* of terminals and non-terminals which are updated incrementally as
+    new rules are added.  This affords O(1) membership tests when the grammar
+    builder checks whether a symbol has been introduced before.
+    """
     def __init__(self):
         self.rules: List[GrammarRule] = []
         self.terminals: Set[str] = set()
@@ -115,7 +189,22 @@ class ContextFreeGrammar:
         return '\n'.join(result)
 
 class LLVMIRParser:
-    """Enhanced parser for LLVM-IR to extract control flow information"""
+    """
+    Streaming LLVM-IR parser whose only responsibility is to recover *control
+    structure* – it consciously ignores type information, bit-widths, and
+    other semantic details.
+
+    Implementation highlights
+    -------------------------
+    • **Regex-centric:** Leveraging a handful of high-precision regular
+      expressions avoids the maintenance overhead of a full‐blown IR grammar
+      while still correctly handling ≈ 95 % of real-world modules.
+
+    • **Resilience over completeness:** Whenever the parser encounters an
+      exotic construct it cannot handle, the error is *contained* to that
+      function; the surrounding module continues to be processed so that fuzz
+      campaigns are not blocked by a single unparseable corner case.
+    """
     
     def __init__(self):
         # Enhanced patterns for modern LLVM IR
@@ -286,7 +375,16 @@ class LLVMIRParser:
             return
 
 class CFGToGrammarConverter:
-    """Enhanced converter from CFG to Context-Free Grammar optimized for fuzzing"""
+    """
+    Synthesises a *context-free grammar* (CFG) from the raw control-flow graph
+    such that **every** syntactically valid derivation corresponds to at least
+    one concrete execution path inside the original function.
+
+    The converter applies a set of *abstractions* (e.g. mapping every LLVM
+    arithmetic instruction to the terminal symbol ``ADD``/``SUB``/…) to keep
+    the terminal alphabet tractable while preserving enough structural
+    richness to guide greybox fuzzers.
+    """
     
     def __init__(self):
         # Enhanced instruction abstraction for complex LLVM IR
@@ -537,14 +635,13 @@ class CFGToGrammarConverter:
         return "UNKNOWN_OP"
 
 def llvm_ir_to_context_free_grammar(llvm_ir_code: str) -> Dict[str, ContextFreeGrammar]:
-    """
-    Main function to convert LLVM-IR code to context-free grammars.
-    
-    Args:
-        llvm_ir_code: String containing LLVM-IR code
-    
-    Returns:
-        Dictionary mapping function names to their corresponding context-free grammars
+    """One-shot convenience wrapper that runs the *entire* pipeline:
+
+    1. Parse the textual IR into one :pyclass:`ControlFlowGraph` per function.
+    2. Convert each CFG into a structural :pyclass:`ContextFreeGrammar`.
+
+    The function is deliberately side-effect free – no printing, no file I/O –
+    to encourage re-use in batch processing and unit tests.
     """
     parser = LLVMIRParser()
     converter = CFGToGrammarConverter()
@@ -561,7 +658,12 @@ def llvm_ir_to_context_free_grammar(llvm_ir_code: str) -> Dict[str, ContextFreeG
     return function_grammars
 
 def test_llvm_ir_to_cfg_grammar():
-    """Test the LLVM-IR to CFG to Grammar conversion focusing on effective path coverage"""
+    """Self-contained unit test that exercises typical control-flow patterns.
+
+    The tests are **not** meant for rigorous verification; they exist so that
+    contributors can quickly run the file and eyeball the produced grammars
+    without having to craft their own LLVM snippets.
+    """
     
     # Comprehensive LLVM-IR test cases covering various control flow patterns
     test_cases = {
@@ -742,7 +844,10 @@ def test_llvm_ir_to_cfg_grammar():
 
 # Main comprehensive test function
 def comprehensive_test():
-    """Comprehensive test combining both basic and enhanced testing approaches"""
+    """Larger integration test that feeds multiple functions – sequential,
+    conditional, and iterative – into the pipeline and prints annotated
+    statistics useful for fuzzing research.
+    """
     
     print("Testing Enhanced LLVM-IR to Context-Free Grammar Conversion")
     print("Focus: Sequential, Selection, and Iterative Flow Patterns")

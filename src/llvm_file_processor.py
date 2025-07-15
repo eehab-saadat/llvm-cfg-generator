@@ -12,7 +12,22 @@ from llvm_cfg_generator import llvm_ir_to_context_free_grammar, ContextFreeGramm
 
 @dataclass
 class GrammarAnalytics:
-    """Comprehensive analytics for a generated context-free grammar"""
+    """
+    Post-processing data structure that distills *quantitative* properties from
+    a freshly generated :pyclass:`llvm_cfg_generator.ContextFreeGrammar`.
+
+    The collected metrics fall into four broad categories:
+
+    1. **Structural** – number of rules, branching factor, derivation depth.
+    2. **Control-flow** – basic blocks, choice points, loop patterns.
+    3. **Fuzzing-oriented** – path alternatives, optional/repetition rules.
+    4. **Coverage / Semantics** – instruction types and high-level flow
+       patterns present in the grammar.
+
+    A higher-level orchestrator (CLI, notebook, GUI) can serialise instances of
+    this dataclass into human-readable reports or feed them into downstream
+    optimisation heuristics that decide which functions are *worth* fuzzing.
+    """
     
     # Basic Grammar Metrics
     function_name: str
@@ -84,7 +99,17 @@ Coverage Details:
 
 @dataclass
 class FileProcessingResult:
-    """Result of processing an LLVM-IR file"""
+    """
+    Container returned by :pyfunc:`LLVMFileProcessor.process_file` and the
+    helper wrappers such as :pyfunc:`process_llvm_file`.
+
+    It captures both **high-level status** (success flag, aggregated metrics)
+    and the **detailed artefacts** (per-function grammars + analytics).
+
+    Having a single object makes it easier to forward data between batch
+    processing helpers and report generators without having to juggle several
+    loosely-coupled variables.
+    """
     
     file_path: str
     success: bool
@@ -124,7 +149,14 @@ Function Details:
         return result
 
 class LLVMFileProcessor:
-    """High-level processor for LLVM-IR files with comprehensive analytics"""
+    """
+    Facade that orchestrates *reading*, *parsing*, *grammar generation*, and
+    *analytics* for **one** LLVM-IR file at a time.
+
+    The class deliberately hides all the gritty details so that command-line
+    interfaces and GUIs can perform complex processing with a single method
+    call.
+    """
     
     def __init__(self):
         self.supported_extensions = ['.ll', '.bc', '.txt']
@@ -409,27 +441,20 @@ class LLVMFileProcessor:
         return round(score, 2)
 
 def process_llvm_file(file_path: str) -> FileProcessingResult:
-    """
-    Convenience function to process a single LLVM-IR file.
-    
-    Args:
-        file_path: Path to the LLVM-IR file
-        
-    Returns:
-        FileProcessingResult with grammars and comprehensive analytics
+    """Thin wrapper around :pyclass:`LLVMFileProcessor` for one-off calls.
+
+    This helper exists mostly for backwards compatibility and quick REPL
+    experimentation.
     """
     processor = LLVMFileProcessor()
     return processor.process_file(file_path)
 
 def process_multiple_files(file_paths: List[str]) -> Dict[str, FileProcessingResult]:
-    """
-    Process multiple LLVM-IR files and return results for each.
-    
-    Args:
-        file_paths: List of paths to LLVM-IR files
-        
-    Returns:
-        Dictionary mapping file paths to their processing results
+    """Apply :pyfunc:`process_llvm_file` to every path in *file_paths*.
+
+    The function collects the individual :pyclass:`FileProcessingResult`
+    objects in a dictionary so that callers can inspect successes and failures
+    side-by-side.
     """
     processor = LLVMFileProcessor()
     results = {}
@@ -440,14 +465,10 @@ def process_multiple_files(file_paths: List[str]) -> Dict[str, FileProcessingRes
     return results
 
 def generate_batch_report(results: Dict[str, FileProcessingResult]) -> str:
-    """
-    Generate a comprehensive report for batch processing results.
-    
-    Args:
-        results: Dictionary of file processing results
-        
-    Returns:
-        Formatted report string
+    """Human-readable summary for a whole *batch* of processed files.
+
+    The returned string is already formatted for terminal output and therefore
+    does **not** require additional pretty-printing.
     """
     successful_files = [r for r in results.values() if r.success]
     failed_files = [r for r in results.values() if not r.success]
@@ -491,18 +512,16 @@ Successful Files:
     
     return report
 
-def dump_grammars_to_file(grammars: Dict[str, ContextFreeGrammar], output_path: str, 
-                         analytics: Dict[str, GrammarAnalytics] = None) -> bool:
-    """
-    Dump all context-free grammars to a comprehensive text file.
-    
-    Args:
-        grammars: Dictionary of function names to their context-free grammars
-        output_path: Path where to save the grammar dump
-        analytics: Optional analytics data to include in the dump
-        
-    Returns:
-        True if successful, False otherwise
+def dump_grammars_to_file(
+    grammars: Dict[str, ContextFreeGrammar],
+    output_path: str,
+    analytics: Dict[str, GrammarAnalytics] | None = None,
+) -> bool:
+    """Serialise a set of grammars (plus optional analytics) into a text file.
+
+    The resulting *dump* is aimed at researchers who prefer to inspect the
+    grammar in a plain editor instead of loading the notebook / Python
+    objects.
     """
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -650,16 +669,9 @@ def dump_grammars_to_file(grammars: Dict[str, ContextFreeGrammar], output_path: 
         print(f"Error writing grammar dump to {output_path}: {e}")
         return False
 
-def dump_grammars_from_file(llvm_file_path: str, output_path: str = None) -> bool:
-    """
-    Process an LLVM file and dump its grammars to a text file.
-    
-    Args:
-        llvm_file_path: Path to the LLVM-IR file
-        output_path: Path for the grammar dump (auto-generated if None)
-        
-    Returns:
-        True if successful, False otherwise
+def dump_grammars_from_file(llvm_file_path: str, output_path: str | None = None) -> bool:
+    """Utility that combines :pyfunc:`process_llvm_file` **and**
+    :pyfunc:`dump_grammars_to_file` for one stop *CLI* convenience.
     """
     # Auto-generate output path if not provided
     if output_path is None:
