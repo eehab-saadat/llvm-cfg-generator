@@ -1,0 +1,18 @@
+ini_file      ::= { section | key_value | comment | blank_line }
+
+section       ::= '[' section_name ']' line_ending
+section_name  ::= { any_char_except(']') }
+
+key_value     ::= key separator value [inline_comment] line_ending
+key           ::= { any_char_except('=', ':', line_ending, comment_marker) }
+separator     ::= '=' | ':'
+value         ::= { any_char_except(line_ending, comment_marker) }
+inline_comment::= whitespace comment_marker { any_char_except(line_ending) }
+
+comment       ::= whitespace* comment_marker { any_char_except(line_ending) } line_ending
+comment_marker::= ';' | '#'
+
+blank_line    ::= whitespace* line_ending
+
+whitespace    ::= ' ' | '\t'
+line_ending   ::= '\n' | '\r\n'
