@@ -1,8 +1,8 @@
-# LLVM CFG Generator
+# WHITEBOX-GI GRAMMAR GENERATOR
 
 ## 🎯 Project Overview
 
-The LLVM CFG Generator analyzes LLVM IR files to extract control-flow graphs (CFGs) and automatically infers context-free grammars that model the execution paths through functions. These grammars are specifically designed to be effective for fuzzing applications.
+The WHITEBOX-GI GRAMMAR GENERATOR analyzes LLVM IR files to extract control-flow graphs (CFGs) and automatically infers context-free grammars that model the execution paths through functions. These grammars are specifically designed to be effective for fuzzing applications.
 
 ## 🏗️ Architecture & Core Modules
 
