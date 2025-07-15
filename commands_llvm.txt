@@ -1,0 +1,22 @@
+*Compilation From .c To .ll:*
+  
+  # Compile main.c and helper parson.c to LLVM bitcode
+  clang -emit-llvm -c main.c -o main.bc
+  clang -emit-llvm -c parson.c -o parson.bc
+  
+  # Link bitcode files together
+  llvm-link main.bc parson.bc -o final.bc
+  
+  # Convert bitcode to human-readable LLVM IR (.ll)
+  llvm-dis final.bc -o final.ll
+  # Or run one-line command
+  clang -emit-llvm -c *.c && llvm-link *.bc -o final.bc && llvm-dis final.bc -o final.ll
+
+  
+*Control Flow Graph Extraction:*
+  
+  download opt version: Ubuntu LLVM version 18.1.3
+  
+  run: > opt -disable-output -print-module-scope -passes="dot-cfg" <file_name>.ll
+
+  “-dot-cfg” option will generate the cfg for our file.ll. “-disable-output” option prevents opt from sending     output on the terminal. “-enable-new-pm=0” option is used to disable the new pass manager of llvm so that       older pass manager is used to print the cfg.
